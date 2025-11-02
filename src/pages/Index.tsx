@@ -5,6 +5,7 @@ import { ImagePreview } from '@/components/ImagePreview';
 import { ProcessingState } from '@/components/ProcessingState';
 import { ResultsDisplay } from '@/components/ResultsDisplay';
 import { useToast } from '@/hooks/use-toast';
+import { generateAndDownloadDoc } from '@/utils/docGenerator';
 
 const Index = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -59,12 +60,26 @@ const Index = () => {
     setExtractedText('');
   };
 
-  const handleDownload = () => {
-    // TODO: Implement DOC file generation
-    toast({
-      title: "Download started",
-      description: "Your document is being prepared",
-    });
+  const handleDownload = async () => {
+    try {
+      toast({
+        title: "Generating document...",
+        description: "Your DOC file is being created",
+      });
+
+      await generateAndDownloadDoc(extractedText, 'bengali-ocr-result.docx');
+
+      toast({
+        title: "Download complete",
+        description: "Your document has been downloaded",
+      });
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Unable to generate the document",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
