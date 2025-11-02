@@ -5,9 +5,10 @@ import { Card } from '@/components/ui/card';
 interface ResultsDisplayProps {
   extractedText: string;
   onDownload: () => void;
+  disabled?: boolean;
 }
 
-export const ResultsDisplay = ({ extractedText, onDownload }: ResultsDisplayProps) => {
+export const ResultsDisplay = ({ extractedText, onDownload, disabled = false }: ResultsDisplayProps) => {
   return (
     <div className="space-y-6">
       <Card className="p-6 bg-card border-border shadow-soft">
@@ -18,7 +19,8 @@ export const ResultsDisplay = ({ extractedText, onDownload }: ResultsDisplayProp
           </div>
           <Button 
             onClick={onDownload}
-            className="bg-gradient-to-r from-primary to-accent hover:opacity-90"
+            disabled={disabled}
+            className="bg-gradient-to-r from-primary to-accent hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Download className="w-4 h-4 mr-2" />
             Download DOC

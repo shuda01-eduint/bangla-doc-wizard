@@ -36,6 +36,9 @@ const Index = () => {
         
         imagesToProcess = await convertPdfToImages(file);
         console.log(`Converted ${imagesToProcess.length} PDF pages to images`);
+        if (imagesToProcess[0]) {
+          setImageUrl(imagesToProcess[0]);
+        }
       } else {
         // Handle regular images
         const reader = new FileReader();
@@ -175,6 +178,7 @@ const Index = () => {
             <ResultsDisplay 
               extractedText={extractedText} 
               onDownload={handleDownload}
+              disabled={!extractedText}
             />
           )}
         </div>
