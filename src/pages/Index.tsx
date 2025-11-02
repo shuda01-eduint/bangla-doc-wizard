@@ -7,6 +7,7 @@ import { ResultsDisplay } from '@/components/ResultsDisplay';
 import { useToast } from '@/hooks/use-toast';
 import { generateAndDownloadDoc } from '@/utils/docGenerator';
 import { supabase } from '@/integrations/supabase/client';
+import { convertPdfToImages } from '@/utils/pdfConverter';
 
 const Index = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -23,48 +24,78 @@ const Index = () => {
     setIsProcessing(true);
     
     try {
-      // Convert file to base64
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const imageData = await base64Promise;
-
-      console.log('Sending OCR request...');
+      let imagesToProcess: string[] = [];
       
-      const { data, error } = await supabase.functions.invoke('ocr-process', {
-        body: { imageData }
-      });
-
-      if (error) {
-        throw error;
+      // Handle PDFs differently
+      if (file.type === 'application/pdf') {
+        console.log('Converting PDF to images...');
+        toast({
+          title: "Processing PDF",
+          description: "Converting pages to images...",
+        });
+        
+        imagesToProcess = await convertPdfToImages(file);
+        console.log(`Converted ${imagesToProcess.length} PDF pages to images`);
+      } else {
+        // Handle regular images
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        
+        const imageData = await base64Promise;
+        imagesToProcess = [imageData];
       }
 
-      if (data?.error) {
-        throw new Error(data.error);
+      console.log(`Processing ${imagesToProcess.length} image(s) with OCR...`);
+      
+      // Process all images
+      const extractedTexts: string[] = [];
+      
+      for (let i = 0; i < imagesToProcess.length; i++) {
+        console.log(`Processing image ${i + 1} of ${imagesToProcess.length}...`);
+        
+        const { data, error } = await supabase.functions.invoke('ocr-process', {
+          body: { imageData: imagesToProcess[i] }
+        });
+
+        if (error) {
+          console.error('Supabase function error:', error);
+          throw error;
+        }
+
+        if (data?.error) {
+          console.error('OCR processing error:', data.error);
+          throw new Error(data.error);
+        }
+
+        extractedTexts.push(data.extractedText || '');
       }
 
-      setExtractedText(data.extractedText || 'No text found in the image');
+      // Combine all extracted text
+      const combinedText = extractedTexts.join('\n\n--- Page Break ---\n\n');
+      setExtractedText(combinedText || 'No text found in the document');
       
       toast({
         title: "Processing complete",
-        description: "Bengali text extracted successfully",
+        description: `Successfully extracted text from ${imagesToProcess.length} page(s)`,
       });
     } catch (error: any) {
       console.error('OCR processing error:', error);
       
-      let errorMessage = "Unable to process the image";
+      let errorMessage = "Unable to process the file";
       
       if (error.message?.includes('Rate limit')) {
         errorMessage = "Rate limit exceeded. Please try again in a moment.";
       } else if (error.message?.includes('credits')) {
         errorMessage = "AI credits depleted. Please add credits to continue.";
+      } else if (error.message) {
+        errorMessage = error.message;
       }
       
       toast({
