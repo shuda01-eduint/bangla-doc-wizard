@@ -6,6 +6,7 @@ import { ProcessingState } from '@/components/ProcessingState';
 import { ResultsDisplay } from '@/components/ResultsDisplay';
 import { useToast } from '@/hooks/use-toast';
 import { generateAndDownloadDoc } from '@/utils/docGenerator';
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -19,33 +20,60 @@ const Index = () => {
     const url = URL.createObjectURL(file);
     setImageUrl(url);
     
-    // Process the image
     setIsProcessing(true);
     
     try {
-      // TODO: Implement actual OCR processing via edge function
-      // For now, showing a demo message
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Convert file to base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const imageData = await base64Promise;
+
+      console.log('Sending OCR request...');
       
-      setExtractedText(
-        'OCR processing will be implemented with Lovable Cloud.\n\n' +
-        'The system will:\n' +
-        '• Extract Bengali text with high accuracy\n' +
-        '• Preserve formatting and structure\n' +
-        '• Detect and maintain table layouts\n' +
-        '• Generate downloadable DOC files'
-      );
+      const { data, error } = await supabase.functions.invoke('ocr-process', {
+        body: { imageData }
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      setExtractedText(data.extractedText || 'No text found in the image');
       
       toast({
         title: "Processing complete",
-        description: "Text extracted successfully",
+        description: "Bengali text extracted successfully",
       });
-    } catch (error) {
+    } catch (error: any) {
+      console.error('OCR processing error:', error);
+      
+      let errorMessage = "Unable to process the image";
+      
+      if (error.message?.includes('Rate limit')) {
+        errorMessage = "Rate limit exceeded. Please try again in a moment.";
+      } else if (error.message?.includes('credits')) {
+        errorMessage = "AI credits depleted. Please add credits to continue.";
+      }
+      
       toast({
         title: "Processing failed",
-        description: "Unable to process the image",
+        description: errorMessage,
         variant: "destructive",
       });
+      
+      setExtractedText('');
     } finally {
       setIsProcessing(false);
     }
