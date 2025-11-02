@@ -1,7 +1,11 @@
 import * as pdfjsLib from 'pdfjs-dist';
+// Use Vite worker bundling to avoid external CDN loading issues
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - Vite's ?worker returns a Worker constructor
+import PDFWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Initialize dedicated worker via workerPort (recommended for bundlers)
+pdfjsLib.GlobalWorkerOptions.workerPort = new (PDFWorker as unknown as { new (): Worker })();
 
 export const convertPdfToImages = async (file: File): Promise<string[]> => {
   const arrayBuffer = await file.arrayBuffer();
