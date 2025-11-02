@@ -33,18 +33,31 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-pro',
+        model: 'google/gemini-2.5-flash',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert OCR system specializing in Bengali text extraction. Your task is to extract all text from images while preserving formatting, structure, and table layouts. Return the extracted text in a well-formatted manner that maintains the original document structure.'
+            content: 'You are an expert OCR system for Bengali documents. Extract text while preserving ALL formatting and structure using Markdown conventions.'
           },
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: 'Please extract all Bengali text from this image. Preserve all formatting, line breaks, spacing, and table structures. If there are tables, represent them in a clear text format using appropriate spacing and line breaks.'
+                text: `Extract all text from this image following these rules:
+1. For tables: Use Markdown table format with | as column separators
+2. Include header rows with |---|---|---| separator line
+3. For section headers: Prefix with ## (main headers) or ### (subheaders)
+4. Preserve paragraph breaks with blank lines
+5. For aligned data without full tables: Use tab characters between columns
+6. Maintain exact Bengali spelling, numbers, and special characters
+
+Example table format:
+| Column 1 | Column 2 | Column 3 |
+|----------|----------|----------|
+| Data 1   | Data 2   | Data 3   |
+
+Extract the complete text now:`
               },
               {
                 type: 'image_url',

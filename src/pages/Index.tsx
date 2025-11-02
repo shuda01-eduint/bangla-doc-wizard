@@ -14,6 +14,7 @@ const Index = () => {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedText, setExtractedText] = useState<string>('');
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
   const { toast } = useToast();
 
   const handleFileSelect = async (file: File) => {
@@ -57,36 +58,53 @@ const Index = () => {
 
       console.log(`Processing ${imagesToProcess.length} image(s) with OCR...`);
       
-      // Process all images
+      // Process all images with error recovery
       const extractedTexts: string[] = [];
+      const failedPages: number[] = [];
+      setProgress({ current: 0, total: imagesToProcess.length });
       
       for (let i = 0; i < imagesToProcess.length; i++) {
         console.log(`Processing image ${i + 1} of ${imagesToProcess.length}...`);
+        setProgress({ current: i + 1, total: imagesToProcess.length });
         
-        const { data, error } = await supabase.functions.invoke('ocr-process', {
-          body: { imageData: imagesToProcess[i] }
-        });
+        try {
+          const { data, error } = await supabase.functions.invoke('ocr-process', {
+            body: { imageData: imagesToProcess[i] }
+          });
 
-        if (error) {
-          console.error('Supabase function error:', error);
-          throw error;
+          if (error) {
+            console.error(`Page ${i + 1} error:`, error);
+            failedPages.push(i + 1);
+            extractedTexts.push(`[Page ${i + 1} failed to process]`);
+            continue;
+          }
+
+          if (data?.error) {
+            console.error(`Page ${i + 1} OCR error:`, data.error);
+            failedPages.push(i + 1);
+            extractedTexts.push(`[Page ${i + 1} failed to process]`);
+            continue;
+          }
+
+          extractedTexts.push(data.extractedText || '');
+        } catch (pageError) {
+          console.error(`Page ${i + 1} exception:`, pageError);
+          failedPages.push(i + 1);
+          extractedTexts.push(`[Page ${i + 1} failed to process]`);
         }
-
-        if (data?.error) {
-          console.error('OCR processing error:', data.error);
-          throw new Error(data.error);
-        }
-
-        extractedTexts.push(data.extractedText || '');
       }
 
       // Combine all extracted text
       const combinedText = extractedTexts.join('\n\n--- Page Break ---\n\n');
       setExtractedText(combinedText || 'No text found in the document');
       
+      const successCount = imagesToProcess.length - failedPages.length;
       toast({
         title: "Processing complete",
-        description: `Successfully extracted text from ${imagesToProcess.length} page(s)`,
+        description: failedPages.length > 0 
+          ? `Successfully extracted ${successCount}/${imagesToProcess.length} pages. Failed: ${failedPages.join(', ')}`
+          : `Successfully extracted text from ${imagesToProcess.length} page(s)`,
+        variant: failedPages.length > 0 ? "default" : "default"
       });
     } catch (error: any) {
       console.error('OCR processing error:', error);
@@ -110,6 +128,7 @@ const Index = () => {
       setExtractedText('');
     } finally {
       setIsProcessing(false);
+      setProgress({ current: 0, total: 0 });
     }
   };
 
@@ -172,7 +191,7 @@ const Index = () => {
             <ImagePreview imageUrl={imageUrl} onRemove={handleRemoveImage} />
           )}
 
-          {isProcessing && <ProcessingState />}
+          {isProcessing && <ProcessingState current={progress.current} total={progress.total} />}
 
           {!isProcessing && extractedText && (
             <ResultsDisplay 
