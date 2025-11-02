@@ -81,7 +81,7 @@ const Index = () => {
             </h1>
           </div>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Extract Bengali text from images with formatting and table preservation
+            Extract Bengali text from images and PDFs with formatting and table preservation
           </p>
         </div>
 

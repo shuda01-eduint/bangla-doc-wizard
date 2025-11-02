@@ -37,12 +37,14 @@ export const FileUpload = ({ onFileSelect }: FileUploadProps) => {
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
       const file = files[0];
-      if (file.type.startsWith('image/')) {
+      const isValidType = file.type.startsWith('image/') || file.type === 'application/pdf';
+      
+      if (isValidType) {
         onFileSelect(file);
       } else {
         toast({
           title: "Invalid file type",
-          description: "Please upload an image file",
+          description: "Please upload an image or PDF file",
           variant: "destructive",
         });
       }
@@ -53,12 +55,14 @@ export const FileUpload = ({ onFileSelect }: FileUploadProps) => {
     const files = e.target.files;
     if (files && files.length > 0) {
       const file = files[0];
-      if (file.type.startsWith('image/')) {
+      const isValidType = file.type.startsWith('image/') || file.type === 'application/pdf';
+      
+      if (isValidType) {
         onFileSelect(file);
       } else {
         toast({
           title: "Invalid file type",
-          description: "Please upload an image file",
+          description: "Please upload an image or PDF file",
           variant: "destructive",
         });
       }
@@ -84,7 +88,7 @@ export const FileUpload = ({ onFileSelect }: FileUploadProps) => {
         type="file"
         id="file-upload"
         className="hidden"
-        accept="image/*"
+        accept="image/*,application/pdf"
         onChange={handleFileInput}
       />
       <label htmlFor="file-upload" className="cursor-pointer">
@@ -102,10 +106,10 @@ export const FileUpload = ({ onFileSelect }: FileUploadProps) => {
           </div>
           <div>
             <p className="text-lg font-semibold text-foreground mb-2">
-              {isDragging ? 'Drop your image here' : 'Upload an image to extract text'}
+              {isDragging ? 'Drop your file here' : 'Upload an image or PDF to extract text'}
             </p>
             <p className="text-sm text-muted-foreground">
-              Drag and drop or click to browse • Supports Bengali text
+              Drag and drop or click to browse • Supports images & PDFs • Bengali text extraction
             </p>
           </div>
         </div>
