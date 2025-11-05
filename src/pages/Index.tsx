@@ -88,6 +88,25 @@ const Index = () => {
 
           if (error) {
             console.error(`Page ${i + 1} error:`, error);
+            
+            // Check for specific errors
+            if (error.message?.includes('Rate limit') || error.message?.includes('429')) {
+              toast({
+                title: "Rate limit exceeded",
+                description: "Too many requests. Waiting before retry...",
+                variant: "destructive",
+              });
+              throw new Error('Rate limited - please wait and try again');
+            }
+            if (error.message?.includes('credits') || error.message?.includes('402')) {
+              toast({
+                title: "Out of AI credits",
+                description: "Please add credits to your workspace in Settings → Usage",
+                variant: "destructive",
+              });
+              throw new Error('No credits available');
+            }
+            
             failedPages.push(i + 1);
             extractedTexts.push(`[Page ${i + 1} failed to process]`);
             continue;
@@ -95,13 +114,36 @@ const Index = () => {
 
           if (data?.error) {
             console.error(`Page ${i + 1} OCR error:`, data.error);
+            
+            if (data.error.includes('Rate limit') || data.error.includes('429')) {
+              toast({
+                title: "Rate limit exceeded",
+                description: "Too many requests. Please wait a moment.",
+                variant: "destructive",
+              });
+              throw new Error('Rate limited');
+            }
+            if (data.error.includes('credits') || data.error.includes('402')) {
+              toast({
+                title: "Out of AI credits",
+                description: "Add credits in Settings → Workspace → Usage",
+                variant: "destructive",
+              });
+              throw new Error('No credits');
+            }
+            
             failedPages.push(i + 1);
             extractedTexts.push(`[Page ${i + 1} failed to process]`);
             continue;
           }
 
           extractedTexts.push(data.extractedText || '');
-        } catch (pageError) {
+          
+          // Add 2-second delay between pages to avoid rate limiting
+          if (i < imagesToProcess.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        } catch (pageError: any) {
           console.error(`Page ${i + 1} exception:`, pageError);
           failedPages.push(i + 1);
           extractedTexts.push(`[Page ${i + 1} failed to process]`);
@@ -205,7 +247,45 @@ const Index = () => {
             body: { imageData: imagesToProcess[i] }
           });
 
-          if (error || data?.error) {
+          // Check for specific error types
+          if (error) {
+            if (error.message?.includes('Rate limit') || error.message?.includes('429')) {
+              toast({
+                title: "Rate limit exceeded",
+                description: "Too many requests. Please wait a moment and try again.",
+                variant: "destructive",
+              });
+              throw new Error('Rate limited');
+            }
+            if (error.message?.includes('credits') || error.message?.includes('402')) {
+              toast({
+                title: "Out of AI credits",
+                description: "Please add credits to your workspace to continue processing.",
+                variant: "destructive",
+              });
+              throw new Error('No credits');
+            }
+            extractedTexts.push(`[Page ${i + 1} failed]`);
+            continue;
+          }
+
+          if (data?.error) {
+            if (data.error.includes('Rate limit') || data.error.includes('429')) {
+              toast({
+                title: "Rate limit exceeded",
+                description: "Too many requests. Please wait a moment and try again.",
+                variant: "destructive",
+              });
+              throw new Error('Rate limited');
+            }
+            if (data.error.includes('credits') || data.error.includes('402')) {
+              toast({
+                title: "Out of AI credits",
+                description: "Please add credits to your workspace to continue processing.",
+                variant: "destructive",
+              });
+              throw new Error('No credits');
+            }
             extractedTexts.push(`[Page ${i + 1} failed]`);
             continue;
           }
@@ -221,7 +301,15 @@ const Index = () => {
             extractedText: pageText,
             pageNumber: imagesToProcess.length > 1 ? i + 1 : undefined,
           }]);
-        } catch (error) {
+
+          // Add delay between requests to avoid rate limiting (2 seconds)
+          if (i < imagesToProcess.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        } catch (error: any) {
+          if (error.message === 'Rate limited' || error.message === 'No credits') {
+            throw error; // Stop processing this file
+          }
           extractedTexts.push(`[Page ${i + 1} failed]`);
         }
       }
