@@ -1,13 +1,18 @@
 import { useState } from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, Download } from 'lucide-react';
 import { FileUpload } from '@/components/FileUpload';
 import { ImagePreview } from '@/components/ImagePreview';
 import { ProcessingState } from '@/components/ProcessingState';
 import { ResultsDisplay } from '@/components/ResultsDisplay';
+import { FileQueue, QueuedFile } from '@/components/FileQueue';
+import { PreviewGallery } from '@/components/PreviewGallery';
 import { useToast } from '@/hooks/use-toast';
 import { generateAndDownloadDoc } from '@/utils/docGenerator';
 import { supabase } from '@/integrations/supabase/client';
 import { convertPdfToImages } from '@/utils/pdfConverter';
+import { Button } from '@/components/ui/button';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 const Index = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -15,6 +20,15 @@ const Index = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedText, setExtractedText] = useState<string>('');
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [fileQueue, setFileQueue] = useState<QueuedFile[]>([]);
+  const [previewItems, setPreviewItems] = useState<Array<{
+    id: string;
+    fileName: string;
+    imageUrl?: string;
+    extractedText: string;
+    pageNumber?: number;
+  }>>([]);
+  const [isBatchMode, setIsBatchMode] = useState(false);
   const { toast } = useToast();
 
   const handleFileSelect = async (file: File) => {
@@ -132,6 +146,104 @@ const Index = () => {
     }
   };
 
+  const handleFolderSelect = async (files: File[]) => {
+    setIsBatchMode(true);
+    setFileQueue([]);
+    setPreviewItems([]);
+    
+    const queuedFiles: QueuedFile[] = files.map((file, idx) => ({
+      id: `file-${idx}-${Date.now()}`,
+      file,
+      status: 'pending' as const,
+    }));
+    
+    setFileQueue(queuedFiles);
+    
+    // Process files sequentially
+    for (const queuedFile of queuedFiles) {
+      await processSingleFile(queuedFile);
+    }
+    
+    toast({
+      title: "Batch processing complete",
+      description: `Processed ${files.length} files`,
+    });
+  };
+
+  const processSingleFile = async (queuedFile: QueuedFile) => {
+    setFileQueue(prev => prev.map(f => 
+      f.id === queuedFile.id ? { ...f, status: 'processing' as const } : f
+    ));
+
+    try {
+      let imagesToProcess: string[] = [];
+      const fileUrl = URL.createObjectURL(queuedFile.file);
+      
+      if (queuedFile.file.type === 'application/pdf') {
+        imagesToProcess = await convertPdfToImages(queuedFile.file);
+      } else {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(queuedFile.file);
+        });
+        imagesToProcess = [await base64Promise];
+      }
+
+      const extractedTexts: string[] = [];
+      
+      for (let i = 0; i < imagesToProcess.length; i++) {
+        setFileQueue(prev => prev.map(f => 
+          f.id === queuedFile.id 
+            ? { ...f, progress: `Processing page ${i + 1} of ${imagesToProcess.length}...` }
+            : f
+        ));
+
+        try {
+          const { data, error } = await supabase.functions.invoke('ocr-process', {
+            body: { imageData: imagesToProcess[i] }
+          });
+
+          if (error || data?.error) {
+            extractedTexts.push(`[Page ${i + 1} failed]`);
+            continue;
+          }
+
+          const pageText = data.extractedText || '';
+          extractedTexts.push(pageText);
+          
+          // Add to preview gallery
+          setPreviewItems(prev => [...prev, {
+            id: `${queuedFile.id}-page-${i}`,
+            fileName: queuedFile.file.name,
+            imageUrl: imagesToProcess[i],
+            extractedText: pageText,
+            pageNumber: imagesToProcess.length > 1 ? i + 1 : undefined,
+          }]);
+        } catch (error) {
+          extractedTexts.push(`[Page ${i + 1} failed]`);
+        }
+      }
+
+      const combinedText = extractedTexts.join('\n\n--- Page Break ---\n\n');
+      
+      setFileQueue(prev => prev.map(f => 
+        f.id === queuedFile.id 
+          ? { ...f, status: 'completed' as const, extractedText: combinedText, progress: undefined }
+          : f
+      ));
+
+      URL.revokeObjectURL(fileUrl);
+    } catch (error: any) {
+      setFileQueue(prev => prev.map(f => 
+        f.id === queuedFile.id 
+          ? { ...f, status: 'failed' as const, error: error.message || 'Processing failed', progress: undefined }
+          : f
+      ));
+    }
+  };
+
   const handleRemoveImage = () => {
     if (imageUrl) {
       URL.revokeObjectURL(imageUrl);
@@ -139,6 +251,20 @@ const Index = () => {
     setSelectedFile(null);
     setImageUrl('');
     setExtractedText('');
+    setIsBatchMode(false);
+    setFileQueue([]);
+    setPreviewItems([]);
+  };
+
+  const handleRemoveFromQueue = (id: string) => {
+    setFileQueue(prev => prev.filter(f => f.id !== id));
+    setPreviewItems(prev => prev.filter(p => !p.id.startsWith(id)));
+  };
+
+  const handleClearQueue = () => {
+    setFileQueue([]);
+    setPreviewItems([]);
+    setIsBatchMode(false);
   };
 
   const handleDownload = async () => {
@@ -158,6 +284,50 @@ const Index = () => {
       toast({
         title: "Download failed",
         description: "Unable to generate the document",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDownloadAll = async () => {
+    const completedFiles = fileQueue.filter(f => f.status === 'completed' && f.extractedText);
+    
+    if (completedFiles.length === 0) {
+      toast({
+        title: "No files to download",
+        description: "No completed files found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      toast({
+        title: "Generating documents...",
+        description: `Creating ${completedFiles.length} files...`,
+      });
+
+      const zip = new JSZip();
+      
+      for (const file of completedFiles) {
+        const fileName = file.file.name.replace(/\.[^/.]+$/, '') + '.docx';
+        const result = await generateAndDownloadDoc(file.extractedText!, fileName, true);
+        if (result instanceof Blob) {
+          zip.file(fileName, result);
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      saveAs(zipBlob, 'bengali-ocr-results.zip');
+
+      toast({
+        title: "Download complete",
+        description: `${completedFiles.length} documents packaged in ZIP`,
+      });
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Unable to generate documents",
         variant: "destructive",
       });
     }
@@ -183,17 +353,46 @@ const Index = () => {
 
         {/* Main Content */}
         <div className="space-y-8">
-          {!selectedFile && (
-            <FileUpload onFileSelect={handleFileSelect} />
+          {!selectedFile && !isBatchMode && (
+            <FileUpload 
+              onFileSelect={handleFileSelect} 
+              onFolderSelect={handleFolderSelect}
+            />
           )}
 
-          {selectedFile && imageUrl && (
+          {selectedFile && imageUrl && !isBatchMode && (
             <ImagePreview imageUrl={imageUrl} onRemove={handleRemoveImage} />
           )}
 
-          {isProcessing && <ProcessingState current={progress.current} total={progress.total} />}
+          {isBatchMode && (
+            <>
+              <FileQueue 
+                files={fileQueue} 
+                onRemove={handleRemoveFromQueue}
+                onClear={handleClearQueue}
+              />
+              
+              {fileQueue.some(f => f.status === 'completed') && (
+                <div className="flex justify-end">
+                  <Button 
+                    onClick={handleDownloadAll}
+                    className="bg-gradient-to-r from-primary to-accent hover:opacity-90"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download All ({fileQueue.filter(f => f.status === 'completed').length} files)
+                  </Button>
+                </div>
+              )}
 
-          {!isProcessing && extractedText && (
+              <PreviewGallery items={previewItems} />
+            </>
+          )}
+
+          {isProcessing && !isBatchMode && (
+            <ProcessingState current={progress.current} total={progress.total} />
+          )}
+
+          {!isProcessing && extractedText && !isBatchMode && (
             <ResultsDisplay 
               extractedText={extractedText} 
               onDownload={handleDownload}

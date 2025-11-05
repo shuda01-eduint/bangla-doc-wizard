@@ -155,7 +155,7 @@ function createParagraph(text: string): Paragraph {
   });
 }
 
-export const generateAndDownloadDoc = async (text: string, fileName: string = 'extracted-text.docx') => {
+export const generateAndDownloadDoc = async (text: string, fileName: string = 'extracted-text.docx', returnBlob: boolean = false): Promise<Blob | true> => {
   try {
     // Parse the text to identify structure
     const elements = parseStructuredText(text);
@@ -164,44 +164,38 @@ export const generateAndDownloadDoc = async (text: string, fileName: string = 'e
     const children = generateDocxElements(elements);
     
     // If no structured elements found, fall back to simple paragraphs
-    if (children.length === 0) {
-      const fallbackParagraphs = text.split('\n').map(line => 
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: line || ' ',
-              font: 'Kalpurush, SolaimanLipi, Arial Unicode MS',
-              size: 24,
-            }),
-          ],
-          spacing: { after: 200 },
-        })
-      );
-      
-      const doc = new Document({
-        sections: [{
-          properties: {},
-          children: fallbackParagraphs,
-        }],
-      });
-      
-      const blob = await Packer.toBlob(doc);
-      saveAs(blob, fileName);
-      return true;
-    }
+    const finalChildren = children.length === 0 
+      ? text.split('\n').map(line => 
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: line || ' ',
+                font: 'Kalpurush, SolaimanLipi, Arial Unicode MS',
+                size: 24,
+              }),
+            ],
+            spacing: { after: 200 },
+          })
+        )
+      : children;
     
-    // Create document with structured elements
+    // Create document
     const doc = new Document({
       sections: [{
         properties: {},
-        children,
+        children: finalChildren,
       }],
     });
 
-    // Generate and download
+    // Generate blob
     const blob = await Packer.toBlob(doc);
-    saveAs(blob, fileName);
     
+    // Return blob or download
+    if (returnBlob) {
+      return blob;
+    }
+    
+    saveAs(blob, fileName);
     return true;
   } catch (error) {
     console.error('Error generating DOC file:', error);
